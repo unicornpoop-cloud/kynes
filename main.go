@@ -13,13 +13,14 @@ import (
 
 // Config is the configuration for the application
 type Config struct {
-	Repo string `short:"r" desc:"Repo to apply terraform from"`
-
-	ConfigFile string `id:"config" short:"C"`
+	Repo         string `short:"r" desc:"Repo to apply terraform from"`
+	TerraformDir string `short:"t" desc:"Directory to run the terraform files from"`
+	ConfigFile   string `id:"config" short:"C"`
 }
 
 var config = Config{
-	Repo: "https://github.com/unicornpoop-cloud/gitops-terraform-demo",
+	Repo:         "https://github.com/unicornpoop-cloud/gitops-terraform-demo",
+	TerraformDir: "/tmp/workdir",
 }
 
 func main() {
@@ -33,27 +34,61 @@ func main() {
 	checkIfError(err)
 
 	logInfo("git clone " + config.Repo)
-	_, err = git.PlainClone("./terraform", false, &git.CloneOptions{
+	var r *git.Repository
+
+	r, err = git.PlainClone(config.TerraformDir, false, &git.CloneOptions{
 		URL:      config.Repo,
 		Progress: os.Stdout,
 	})
 
-	logInfo("Running init")
-	_, err = exec.Command("terraform", "init", "./terraform").Output()
+	if err == git.ErrRepositoryAlreadyExists {
+		logInfo("repo already exists - pull latest")
+		r, err = git.PlainOpen(config.TerraformDir)
+		checkIfError(err)
+
+		w, err := r.Worktree()
+		checkIfError(err)
+
+		err = w.Pull(&git.PullOptions{
+			RemoteName: "origin",
+			Progress:   os.Stdout,
+		})
+
+		if err == git.NoErrAlreadyUpToDate {
+			logInfo("already up to date - let's continue")
+		} else {
+			checkIfError(err)
+		}
+	}
+
+	ref, err := r.Head()
 	checkIfError(err)
 
-	tfPlanCmd := exec.Command("terraform", "plan", "-detailed-exitcode", "-out=tfplan.out", "./terraform")
+	commit, err := r.CommitObject(ref.Hash())
+	checkIfError(err)
+
+	fmt.Printf("Current commit: %s\n", commit)
+
+	logInfo("Running init")
+	_, err = exec.Command("terraform", "init", config.TerraformDir).Output()
+	checkIfError(err)
+
+	planFileName := config.TerraformDir + "/tfplan.out"
+	stateFileName := config.TerraformDir + "/terraform.tfstate"
+
+	tfPlanCmd := exec.Command("terraform", "plan", "-detailed-exitcode", "-state="+stateFileName, "-out="+planFileName, config.TerraformDir)
 	var outPlan bytes.Buffer
 	tfPlanCmd.Stdout = &outPlan
 	logInfo("Running plan")
 	err = tfPlanCmd.Run()
-	if err != nil {
-		fmt.Printf("Error planning: %s\n", outPlan.String())
-	}
+
 	planExitCode := tfPlanCmd.ProcessState.ExitCode()
 
 	if planExitCode == 0 {
 		logInfo("No apply needed")
+		tfOutputCmd, err := exec.Command("terraform", "output", "-state="+stateFileName).Output()
+		checkIfError(err)
+		fmt.Printf("%s", tfOutputCmd)
 	}
 
 	if planExitCode == 1 {
@@ -61,8 +96,8 @@ func main() {
 	}
 
 	if planExitCode == 2 {
-		logInfo("Running apply")
-		tfApplyCmd, err := exec.Command("terraform", "apply", "-auto-approve", "tfplan.out").Output()
+		fmt.Printf("Changes detected: \n%s\nRunning apply.", outPlan.String())
+		tfApplyCmd, err := exec.Command("terraform", "apply", "-state="+stateFileName, "-auto-approve", planFileName).Output()
 		checkIfError(err)
 		fmt.Printf("%s", tfApplyCmd)
 	}
