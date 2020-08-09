@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  kynes:
+    environment:
+      TF_VAR_keeper: "202008091738"
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    volumes:
+      - type: volume
+        source: workdir
+        target: /tmp/workdir
+        volume:
+          nocopy: true
+
+volumes:
+  workdir:
