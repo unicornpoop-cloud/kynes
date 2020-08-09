@@ -1,4 +1,4 @@
-package kynes
+package main
 
 import (
 	"bytes"
