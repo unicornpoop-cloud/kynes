@@ -13,5 +13,3 @@ WORKDIR /kynes
 COPY --from=builder /kynes/kynes .
 
 ENTRYPOINT [ "/kynes/kynes" ]
-
-CMD [  ]
