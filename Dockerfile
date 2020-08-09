@@ -2,7 +2,7 @@ FROM golang AS builder
 
 WORKDIR /kynes
 
-ADD ./src .
+ADD . .
 
 RUN go build
 
